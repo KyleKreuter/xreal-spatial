@@ -50,7 +50,25 @@ the next. Judge: does the scene feel **locked**, or does it swim/lag? Tune
 `[` / `]` so a world point stays fixed as you rotate. The HUD shows FPS and IMU
 data age (ms).
 
+## Orientation onboarding (required for the native app)
+
+Head-mount orientation has per-fit ambiguities (which way is forward/level, and
+the sign of each axis). The PoC exposes these as manual keys (`space`, `x`/`c`/`v`);
+the final Mac app must resolve them automatically via a short first-run step:
+
+1. **Center** — "Look straight ahead at the marker" → captures the reference
+   pose (`q_ref`). Removes the azimuth/elevation offset.
+2. **Yaw sign** — "Turn your head right" → auto-flip yaw if it moves the wrong way.
+3. **Pitch sign** — "Nod down" → auto-flip pitch likewise.
+4. **Roll sign** — "Tilt your head right" → auto-flip roll likewise.
+5. **Scale (px/deg)** — "Look from the left marker to the right marker" → derive
+   pixels-per-degree from the known angular separation, auto-tuning the FOV.
+
+Result: correct, per-user world-lock with zero manual fiddling. Persist the
+resolved center/signs/scale so it is a one-time step.
+
 ## Next
 
 If the latency feels right, the panels become captured virtual displays and the
 renderer moves to native Swift/Metal + ScreenCaptureKit for the real thing.
+The orientation onboarding above is a first-class part of that app.
