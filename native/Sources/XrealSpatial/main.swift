@@ -52,7 +52,11 @@ view.preferredFramesPerSecond = 120
 view.isPaused = false
 view.enableSetNeedsDisplay = false
 
-let renderer = Renderer(view: view, head: head)
+// capture the main (built-in) display onto the center panel
+let capture = ScreenCapture(device: device)
+capture.start(displayID: CGMainDisplayID())
+
+let renderer = Renderer(view: view, head: head, texProvider: { capture.currentTexture() })
 view.delegate = renderer
 
 view.onKey = { event in

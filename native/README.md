@@ -40,7 +40,20 @@ Sources/XrealSpatial/
   UDPReceiver.swift   background socket reader for head_source packets
 ```
 
+## Screen capture
+
+The center panel shows the live **main display**, captured via ScreenCaptureKit
+and uploaded to a Metal texture each frame (`ScreenCapture.swift`). The side
+panels stay flat placeholders for now.
+
+Requires **Screen Recording** permission for the terminal running `swift run`
+(System Settings > Privacy & Security > Screen Recording). Without it the app
+still runs; panels just stay flat and the console prints guidance.
+
+If the captured panel appears vertically flipped, swap the V texture
+coordinates in `Renderer.build` (tl/bl ↔ 0/1).
+
 ## Next
 
-Replace the placeholder panels with captured virtual displays (CGVirtualDisplay
-+ ScreenCaptureKit), then add the orientation onboarding step.
+Create off-screen virtual displays (CGVirtualDisplay) and capture each onto its
+own panel, then add the orientation onboarding step.
