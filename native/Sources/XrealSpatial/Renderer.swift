@@ -36,9 +36,9 @@ fragment float4 ft_main(TOut in [[stage_in]], texture2d<float> tex [[texture(0)]
 
 private struct Panel { let az, el, w, h: Double }
 private let panels = [
-    Panel(az: -40, el: 0, w: 30, h: 17),   // display slot 0 (left)
+    Panel(az: -31, el: 0, w: 30, h: 17),   // display slot 0 (left)
     Panel(az:   0, el: 0, w: 30, h: 17),   // display slot 1 (center)
-    Panel(az:  40, el: 0, w: 30, h: 17),   // display slot 2 (right)
+    Panel(az:  31, el: 0, w: 30, h: 17),   // display slot 2 (right)
 ]
 
 final class Renderer: NSObject, MTKViewDelegate {

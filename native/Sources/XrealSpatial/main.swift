@@ -9,6 +9,13 @@ final class KeyView: MTKView {
     override func keyDown(with event: NSEvent) { onKey?(event) }
 }
 
+// A borderless window cannot become key by default, so it would never receive
+// keyboard events (recenter etc.). Force it.
+final class SpatialWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 func displayID(of screen: NSScreen) -> CGDirectDisplayID {
     (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
 }
@@ -49,27 +56,30 @@ guard let device = MTLCreateSystemDefaultDevice() else {
     fatalError("No Metal device")
 }
 
-// ---- displays: left/right = virtual, center = the real main display --------
-let vdCount = Int(ProcessInfo.processInfo.environment["XREAL_VD_COUNT"] ?? "2") ?? 2
+// ---- displays: three off-screen virtual displays, one per panel ------------
+// All three are virtual so the render target (glasses) is never captured -> no
+// feedback tunnel. Your real Mac screen stays separate.
+let vdCount = Int(ProcessInfo.processInfo.environment["XREAL_VD_COUNT"] ?? "3") ?? 3
 print("CGVirtualDisplay available: \(CVDFactory.isAvailable())")
 
-var displayIDs: [CGDirectDisplayID?] = [nil, CGMainDisplayID(), nil]  // left, center, right
+var displayIDs: [CGDirectDisplayID?] = [nil, nil, nil]  // left, center, right
 var virtualIDs = Set<CGDirectDisplayID>()
+let vdNames = ["XREAL Left", "XREAL Center", "XREAL Right"]
 if CVDFactory.isAvailable() {
-    if vdCount >= 1 {
-        let id = CVDFactory.createDisplay(withWidth: 1920, height: 1080, name: "XREAL Left")
-        if id != 0 { displayIDs[0] = id; virtualIDs.insert(id); print("virtual display Left  -> id \(id)") }
-    }
-    if vdCount >= 2 {
-        let id = CVDFactory.createDisplay(withWidth: 1920, height: 1080, name: "XREAL Right")
-        if id != 0 { displayIDs[2] = id; virtualIDs.insert(id); print("virtual display Right -> id \(id)") }
+    for slot in 0..<min(max(vdCount, 0), 3) {
+        let id = CVDFactory.createDisplay(withWidth: 1920, height: 1080, name: vdNames[slot])
+        if id != 0 {
+            displayIDs[slot] = id
+            virtualIDs.insert(id)
+            print("virtual \(vdNames[slot]) -> id \(id)")
+        }
     }
 }
 
 // ---- window on the glasses (excluding our virtual displays) ----------------
 let screen = pickGlasses(excluding: virtualIDs)
-let window = NSWindow(contentRect: screen.frame, styleMask: .borderless,
-                     backing: .buffered, defer: false, screen: screen)
+let window = SpatialWindow(contentRect: screen.frame, styleMask: .borderless,
+                          backing: .buffered, defer: false, screen: screen)
 window.level = .normal
 window.isOpaque = true
 window.backgroundColor = .black
