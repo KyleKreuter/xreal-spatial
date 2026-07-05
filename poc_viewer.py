@@ -18,17 +18,26 @@ photon latency) before investing in the native renderer.
     python3 poc_viewer.py --windowed
 
 Keys:  space = recenter (this = forward/level)   [ / ] = tune px-per-degree
-       g = toggle grid    q / esc = quit
+       x = flip yaw   c = flip pitch   v = flip roll   g = grid   q/esc = quit
+
+The flip keys are the seed of the final app's onboarding step: they resolve the
+per-mount sign ambiguity so left/right/up/down map the right way.
 """
 import argparse
 import math
+import os
 import socket
 import struct
+import sys
 import time
 
 import pygame
 
-PACKET = struct.Struct("<dfff")
+# reuse the mounting-correct decomposition from the neighbouring xreal lib
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "xreal"))
+from xreal import head_angles  # noqa: E402
+
+PACKET = struct.Struct("<dffff")   # (wall_time, qw, qx, qy, qz)
 
 # XREAL One ~ 50° diagonal FOV -> ~44 px/deg at 1080p. Tunable live with [ ].
 DEFAULT_PPD = 44.0
@@ -42,34 +51,28 @@ PANELS = [   # (azimuth°, elevation°, width°, height°, label)
 
 class HeadState:
     def __init__(self):
-        self.pitch = self.yaw = self.roll = 0.0
-        self.stamp = 0.0          # wall-time of last packet
-        self.zero_p = self.zero_y = self.zero_r = 0.0
+        self.q = None             # latest quaternion (w,x,y,z)
+        self.q_ref = None         # recenter reference
+        self.stamp = 0.0
+        self.az = self.el = self.roll = 0.0
+        # per-mount sign corrections (resolved via the flip keys / onboarding)
+        self.sx = self.sy = self.sr = 1.0
 
-    def apply(self, t, p, y, r):
+    def apply(self, t, w, x, y, z):
         self.stamp = t
-        self.pitch, self.yaw, self.roll = p, y, r
+        self.q = (w, x, y, z)
+        if self.q_ref is None:
+            self.q_ref = self.q
+        az, el, roll = head_angles(self.q, self.q_ref)
+        self.az, self.el, self.roll = az * self.sx, el * self.sy, roll * self.sr
 
     def recenter(self):
-        self.zero_p, self.zero_y, self.zero_r = self.pitch, self.yaw, self.roll
-
-    @property
-    def az(self):    # head azimuth relative to center, wrapped
-        return _wrap(self.yaw - self.zero_y)
-
-    @property
-    def el(self):
-        return _wrap(self.pitch - self.zero_p)
+        if self.q is not None:
+            self.q_ref = self.q
 
     @property
     def rollr(self):
-        return math.radians(_wrap(self.roll - self.zero_r))
-
-
-def _wrap(a):
-    while a > 180:  a -= 360
-    while a < -180: a += 360
-    return a
+        return math.radians(self.roll)
 
 
 def main():
@@ -135,6 +138,12 @@ def main():
                     ppd = max(10.0, ppd - 1.0)
                 elif e.key == pygame.K_RIGHTBRACKET:
                     ppd += 1.0
+                elif e.key == pygame.K_x:
+                    head.sx *= -1
+                elif e.key == pygame.K_c:
+                    head.sy *= -1
+                elif e.key == pygame.K_v:
+                    head.sr *= -1
                 elif e.key == pygame.K_g:
                     show_grid = not show_grid
 
@@ -150,41 +159,35 @@ def main():
 
         screen.fill(BG)
 
-        # world grid (culled around the current view)
         if show_grid:
             a0, a1 = head.az - 60, head.az + 60
             e0, e1 = head.el - 40, head.el + 40
             for az in range(int(a0 // 5 * 5), int(a1) + 5, 5):
-                p1, p2 = project(az, e0), project(az, e1)
-                pygame.draw.line(screen, GRID, p1, p2, 1)
+                pygame.draw.line(screen, GRID, project(az, e0), project(az, e1), 1)
             for el in range(int(e0 // 5 * 5), int(e1) + 5, 5):
-                p1, p2 = project(a0, el), project(a1, el)
-                pygame.draw.line(screen, GRID, p1, p2, 1)
+                pygame.draw.line(screen, GRID, project(a0, el), project(a1, el), 1)
 
-        # placeholder monitor panels
         for az, el, w, h, label in PANELS:
             corners = [project(az - w / 2, el + h / 2), project(az + w / 2, el + h / 2),
                        project(az + w / 2, el - h / 2), project(az - w / 2, el - h / 2)]
-            centered = abs(_wrap(az - head.az)) < w / 2
+            centered = abs(az - head.az) < w / 2
             col = PANEL_HL if centered else PANEL
             pygame.draw.polygon(screen, col, corners, 3)
             lbl = font.render(label, True, col)
             c = project(az, el)
             screen.blit(lbl, (c[0] - lbl.get_width() / 2, c[1] - lbl.get_height() / 2))
 
-        # head-locked crosshair (your gaze center)
         pygame.draw.line(screen, CROSS, (cx - 16, cy), (cx + 16, cy), 2)
         pygame.draw.line(screen, CROSS, (cx, cy - 16), (cx, cy + 16), 2)
 
-        # HUD
-        dt = clock.get_time() / 1000.0
         fps = clock.get_fps()
         fps_ema = fps if fps_ema == 0 else 0.9 * fps_ema + 0.1 * fps
         age_ms = (time.time() - head.stamp) * 1000.0 if head.stamp else -1
+        signs = f"yaw{'+' if head.sx > 0 else '-'} pitch{'+' if head.sy > 0 else '-'} roll{'+' if head.sr > 0 else '-'}"
         hud = [
-            f"az {head.az:+6.1f}  el {head.el:+6.1f}  roll {math.degrees(head.rollr):+6.1f}",
-            f"{fps_ema:4.0f} fps   IMU-age {age_ms:4.0f} ms   ppd {ppd:.0f}",
-            "space=recenter  [ ]=ppd  g=grid  q=quit",
+            f"az {head.az:+6.1f}  el {head.el:+6.1f}  roll {head.roll:+6.1f}",
+            f"{fps_ema:4.0f} fps   IMU-age {age_ms:4.0f} ms   ppd {ppd:.0f}   [{signs}]",
+            "space=recenter  [ ]=ppd  x/c/v=flip yaw/pitch/roll  g=grid  q=quit",
         ]
         if not head.stamp:
             hud.insert(0, "WAITING for head_source ...")

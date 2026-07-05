@@ -8,8 +8,9 @@ pitch/yaw/roll, and streams each update as a small UDP packet to the viewer
 
     python3 head_source.py [--host 127.0.0.1] [--port 51234]
 
-Packet: struct '<dfff' = (wall_time, pitch_deg, yaw_deg, roll_deg)
-The wall_time lets the receiver measure end-to-end data age (latency).
+Packet: struct '<dffff' = (wall_time, qw, qx, qy, qz)
+The quaternion lets the receiver do mounting-correct decomposition itself
+(xreal.head_angles). wall_time lets it measure end-to-end data age (latency).
 """
 import argparse
 import os
@@ -22,7 +23,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "xreal"))
 from xreal import XrealOne, HeadTracker, DeviceError  # noqa: E402
 
-PACKET = struct.Struct("<dfff")
+PACKET = struct.Struct("<dffff")
 
 
 def main():
@@ -40,11 +41,12 @@ def main():
         with XrealOne() as dev:
             n = 0
             for ori in tracker.stream(dev):
-                sock.sendto(PACKET.pack(time.time(), ori.pitch, ori.yaw, ori.roll), addr)
+                w, x, y, z = ori.quat
+                sock.sendto(PACKET.pack(time.time(), w, x, y, z), addr)
                 n += 1
                 if n % 500 == 0:
-                    print(f"\r{n:>7} pkts  P{ori.pitch:+6.1f} Y{ori.yaw:+6.1f} "
-                          f"R{ori.roll:+6.1f}  bias{tracker.bias_dps:4.2f}°/s "
+                    print(f"\r{n:>7} pkts  quat[{w:+.2f} {x:+.2f} {y:+.2f} {z:+.2f}]  "
+                          f"bias{tracker.bias_dps:4.2f}°/s "
                           f"{'STILL' if ori.is_still else '     '}",
                           end="", flush=True)
     except DeviceError as e:
