@@ -67,8 +67,30 @@ the final Mac app must resolve them automatically via a short first-run step:
 Result: correct, per-user world-lock with zero manual fiddling. Persist the
 resolved center/signs/scale so it is a one-time step.
 
-## Next
+## PoC status: validated ✓
 
-If the latency feels right, the panels become captured virtual displays and the
-renderer moves to native Swift/Metal + ScreenCaptureKit for the real thing.
-The orientation onboarding above is a first-class part of that app.
+Tested on a real XREAL One — world-lock feels solid and the latency is
+acceptable. Parameters carried into the native build:
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| pixels-per-degree | **46** | measured; locks the world at 1080p |
+| head mount | up=+Y, right=+X, forward=+Z | `xreal.head_angles()` |
+| roll | **compensated** | monitor edges kept world-horizontal |
+| prediction lead | **~30 ms** | angular-rate extrapolation, cuts motion sickness |
+| head source | `head_source.py` over UDP | reused unchanged by the native renderer |
+
+## Next: native renderer
+
+Now that the concept holds, the real app moves to native Swift/Metal for lower
+latency and true screen content. `head_source.py` stays as the head-tracking
+source (UDP, same packet format). Roadmap:
+
+1. **Metal skeleton** — fullscreen Metal view on the glasses display, consuming
+   the UDP head packets, rendering a world-locked textured quad (port
+   head_angles + roll-comp + level-lock).
+2. **Virtual displays** — create N off-screen displays (CGVirtualDisplay / BetterDisplay).
+3. **Capture** — ScreenCaptureKit grabs each display into a Metal texture.
+4. **Composite** — place the captured displays as panels at world azimuths.
+5. **Onboarding** — the orientation calibration flow above.
+6. **UX** — recenter, window placement, persistence.
