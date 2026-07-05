@@ -137,9 +137,9 @@ def main():
                     running = False
                 elif e.key == pygame.K_SPACE:
                     head.recenter()
-                elif e.key == pygame.K_LEFTBRACKET:
+                elif e.key in (pygame.K_DOWN, pygame.K_LEFTBRACKET, pygame.K_MINUS):
                     ppd = max(10.0, ppd - 1.0)
-                elif e.key == pygame.K_RIGHTBRACKET:
+                elif e.key in (pygame.K_UP, pygame.K_RIGHTBRACKET, pygame.K_PLUS):
                     ppd += 1.0
                 elif e.key == pygame.K_x:
                     head.sx *= -1
@@ -190,7 +190,7 @@ def main():
         hud = [
             f"az {head.az:+6.1f}  el {head.el:+6.1f}  roll {head.roll:+6.1f}",
             f"{fps_ema:4.0f} fps   IMU-age {age_ms:4.0f} ms   ppd {ppd:.0f}   [{signs}]",
-            "space=recenter  [ ]=ppd  x/c/v=flip yaw/pitch/roll  g=grid  q=quit",
+            "space=recenter  up/down=ppd  x/c/v=flip yaw/pitch/roll  g=grid  q=quit",
         ]
         if not head.stamp:
             hud.insert(0, "WAITING for head_source ...")
