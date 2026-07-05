@@ -39,8 +39,8 @@ from xreal import head_angles  # noqa: E402
 
 PACKET = struct.Struct("<dffff")   # (wall_time, qw, qx, qy, qz)
 
-# XREAL One ~ 50° diagonal FOV -> ~44 px/deg at 1080p. Tunable live with [ ].
-DEFAULT_PPD = 44.0
+# Measured on a real XREAL One: 46 px/deg locks the world perfectly at 1080p.
+DEFAULT_PPD = 46.0
 
 PANELS = [   # (azimuth°, elevation°, width°, height°, label)
     (-40, 0, 30, 17, "Display 1"),
