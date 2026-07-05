@@ -4,5 +4,10 @@ __pycache__/
 .venv/
 venv/
 
+# Swift / SwiftPM
+native/.build/
+.swiftpm/
+*.xcodeproj
+
 # OS
 .DS_Store

@@ -86,9 +86,9 @@ Now that the concept holds, the real app moves to native Swift/Metal for lower
 latency and true screen content. `head_source.py` stays as the head-tracking
 source (UDP, same packet format). Roadmap:
 
-1. **Metal skeleton** — fullscreen Metal view on the glasses display, consuming
-   the UDP head packets, rendering a world-locked textured quad (port
-   head_angles + roll-comp + level-lock).
+1. **Metal skeleton** ✓ — `native/` (Swift/Metal). Fullscreen on the glasses,
+   consumes the UDP head packets, renders the world-locked scene at ~120 fps.
+   Ported head_angles + roll-comp + level-lock. See `native/README.md`.
 2. **Virtual displays** — create N off-screen displays (CGVirtualDisplay / BetterDisplay).
 3. **Capture** — ScreenCaptureKit grabs each display into a Metal texture.
 4. **Composite** — place the captured displays as panels at world azimuths.
