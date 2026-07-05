@@ -26,14 +26,24 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     /// Begin capturing the given display. Prints guidance if permission is missing.
+    /// Retries a few times because a freshly created virtual display may take a
+    /// moment to appear in the shareable content list.
     func start(displayID: CGDirectDisplayID) {
         Task {
             do {
-                let content = try await SCShareableContent.excludingDesktopWindows(
-                    false, onScreenWindowsOnly: false)
-                guard let disp = content.displays.first(where: { $0.displayID == displayID })
-                        ?? content.displays.first else {
-                    print("capture: no shareable display found")
+                var found: SCDisplay?
+                for attempt in 0..<20 {
+                    let content = try await SCShareableContent.excludingDesktopWindows(
+                        false, onScreenWindowsOnly: false)
+                    if let d = content.displays.first(where: { $0.displayID == displayID }) {
+                        found = d
+                        break
+                    }
+                    if attempt == 0 { _ = content }   // permission check happens here
+                    try await Task.sleep(nanoseconds: 200_000_000)
+                }
+                guard let disp = found else {
+                    print("capture: display \(displayID) not found after retries")
                     return
                 }
                 let filter = SCContentFilter(display: disp, excludingWindows: [])

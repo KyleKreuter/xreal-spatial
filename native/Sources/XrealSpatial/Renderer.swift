@@ -34,11 +34,11 @@ fragment float4 ft_main(TOut in [[stage_in]], texture2d<float> tex [[texture(0)]
 }
 """
 
-private struct Panel { let az, el, w, h: Double; let captured: Bool }
+private struct Panel { let az, el, w, h: Double }
 private let panels = [
-    Panel(az: -40, el: 0, w: 30, h: 17, captured: false),
-    Panel(az:   0, el: 0, w: 30, h: 17, captured: true),   // shows the live screen
-    Panel(az:  40, el: 0, w: 30, h: 17, captured: false),
+    Panel(az: -40, el: 0, w: 30, h: 17),   // display slot 0 (left)
+    Panel(az:   0, el: 0, w: 30, h: 17),   // display slot 1 (center)
+    Panel(az:  40, el: 0, w: 30, h: 17),   // display slot 2 (right)
 ]
 
 final class Renderer: NSObject, MTKViewDelegate {
@@ -48,7 +48,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let texPipeline: MTLRenderPipelineState
     private let sampler: MTLSamplerState
     private let head: HeadState
-    private let texProvider: () -> MTLTexture?
+    private let texProvider: (Int) -> MTLTexture?
 
     var ppd: Double = 46.0
     var showGrid = true
@@ -56,7 +56,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var frames = 0
     private var lastStats = CACurrentMediaTime()
 
-    init(view: MTKView, head: HeadState, texProvider: @escaping () -> MTLTexture?) {
+    init(view: MTKView, head: HeadState, texProvider: @escaping (Int) -> MTLTexture?) {
         let dev = view.device!            // local: avoids touching self before super.init
         let fmt = view.colorPixelFormat
         self.device = dev
@@ -104,15 +104,13 @@ final class Renderer: NSObject, MTKViewDelegate {
         let H = Double(view.drawableSize.height)
 
         var gridLines: [Vertex] = []
-        var sideTris: [Vertex] = []
+        var flatTris: [Vertex] = []
         var edgeLines: [Vertex] = []
-        var texQuad: [TVertex] = []
-        let tex = texProvider()
+        var textured: [(MTLTexture, [TVertex])] = []
 
         if head.hasData {
-            build(W: W, H: H, tex: tex,
-                  gridLines: &gridLines, sideTris: &sideTris,
-                  edgeLines: &edgeLines, texQuad: &texQuad)
+            build(W: W, H: H, gridLines: &gridLines, flatTris: &flatTris,
+                  edgeLines: &edgeLines, textured: &textured)
         }
         appendCrosshair(&edgeLines)
 
@@ -121,18 +119,17 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         enc.setRenderPipelineState(flatPipeline)
         drawFlat(&gridLines, .line, enc)          // grid behind
-        drawFlat(&sideTris, .triangle, enc)       // side panels
+        drawFlat(&flatTris, .triangle, enc)       // not-yet-captured panels
 
-        if let tex, !texQuad.isEmpty {             // live screen panel
+        for (tex, verts) in textured {             // one display texture per panel
             enc.setRenderPipelineState(texPipeline)
-            let b = device.makeBuffer(bytes: texQuad, length: texQuad.count * MemoryLayout<TVertex>.stride)!
+            let b = device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<TVertex>.stride)!
             enc.setVertexBuffer(b, offset: 0, index: 0)
             enc.setFragmentTexture(tex, index: 0)
             enc.setFragmentSamplerState(sampler, index: 0)
-            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: texQuad.count)
-            enc.setRenderPipelineState(flatPipeline)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: verts.count)
         }
-
+        enc.setRenderPipelineState(flatPipeline)
         drawFlat(&edgeLines, .line, enc)          // edges + crosshair on top
         enc.endEncoding()
         cmd.present(drawable)
@@ -142,9 +139,9 @@ final class Renderer: NSObject, MTKViewDelegate {
         let now = CACurrentMediaTime()
         if now - lastStats >= 1.0 {
             let a = head.angles()
-            print(String(format: "\r%4.0f fps  az %+6.1f el %+6.1f roll %+6.1f  IMU-age %4.0f ms  ppd %.0f  %@   ",
+            print(String(format: "\r%4.0f fps  az %+6.1f el %+6.1f roll %+6.1f  IMU-age %4.0f ms  ppd %.0f  %d/3 live   ",
                          Double(frames) / (now - lastStats), a.az, a.el, a.roll, a.age * 1000, ppd,
-                         tex == nil ? "no-capture" : "capture-live"), terminator: "")
+                         textured.count), terminator: "")
             fflush(stdout)
             frames = 0; lastStats = now
         }
@@ -157,9 +154,9 @@ final class Renderer: NSObject, MTKViewDelegate {
         enc.drawPrimitives(type: type, vertexStart: 0, vertexCount: verts.count)
     }
 
-    private func build(W: Double, H: Double, tex: MTLTexture?,
-                       gridLines: inout [Vertex], sideTris: inout [Vertex],
-                       edgeLines: inout [Vertex], texQuad: inout [TVertex]) {
+    private func build(W: Double, H: Double,
+                       gridLines: inout [Vertex], flatTris: inout [Vertex],
+                       edgeLines: inout [Vertex], textured: inout [(MTLTexture, [TVertex])]) {
         let a = head.angles()
         let rr = a.roll * .pi / 180.0
         let cr = cos(rr), sr = sin(rr)
@@ -191,18 +188,19 @@ final class Renderer: NSObject, MTKViewDelegate {
             while el <= e1 { gridLines.append(fv(project(a0, el), gridCol)); gridLines.append(fv(project(a1, el), gridCol)); el += 5 }
         }
 
-        for p in panels {
+        for (idx, p) in panels.enumerated() {
             let tl = project(p.az - p.w / 2, p.el + p.h / 2)
             let tr = project(p.az + p.w / 2, p.el + p.h / 2)
             let br = project(p.az + p.w / 2, p.el - p.h / 2)
             let bl = project(p.az - p.w / 2, p.el - p.h / 2)
-            if p.captured, tex != nil {
+            if let tex = texProvider(idx) {
                 // textured quad: tl(0,0) tr(1,0) br(1,1) bl(0,1)
-                texQuad.append(tv(tl, 0, 0)); texQuad.append(tv(tr, 1, 0)); texQuad.append(tv(br, 1, 1))
-                texQuad.append(tv(tl, 0, 0)); texQuad.append(tv(br, 1, 1)); texQuad.append(tv(bl, 0, 1))
+                let q = [tv(tl, 0, 0), tv(tr, 1, 0), tv(br, 1, 1),
+                         tv(tl, 0, 0), tv(br, 1, 1), tv(bl, 0, 1)]
+                textured.append((tex, q))
             } else {
-                sideTris.append(fv(tl, fill)); sideTris.append(fv(tr, fill)); sideTris.append(fv(br, fill))
-                sideTris.append(fv(tl, fill)); sideTris.append(fv(br, fill)); sideTris.append(fv(bl, fill))
+                flatTris.append(fv(tl, fill)); flatTris.append(fv(tr, fill)); flatTris.append(fv(br, fill))
+                flatTris.append(fv(tl, fill)); flatTris.append(fv(br, fill)); flatTris.append(fv(bl, fill))
             }
             let centered = abs(wrapDeg(p.az - a.az)) < p.w / 2
             let ec = centered ? edgeHL : edge

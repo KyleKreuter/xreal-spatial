@@ -40,11 +40,17 @@ Sources/XrealSpatial/
   UDPReceiver.swift   background socket reader for head_source packets
 ```
 
-## Screen capture
+## Virtual displays
 
-The center panel shows the live **main display**, captured via ScreenCaptureKit
-and uploaded to a Metal texture each frame (`ScreenCapture.swift`). The side
-panels stay flat placeholders for now.
+On launch the app creates two off-screen **virtual displays** via the private
+`CGVirtualDisplay` API (`CVDShim`, an Objective-C shim) and assigns them to the
+left and right panels; the center panel shows your real main display. Each is
+captured via ScreenCaptureKit into a Metal texture (`ScreenCapture.swift`).
+
+The virtual displays appear in *System Settings > Displays* as "XREAL Left" and
+"XREAL Right". Arrange them there, then drag windows/apps onto them — they are
+off-screen on the Mac but visible in the glasses panels. They are destroyed when
+the app quits. Set `XREAL_VD_COUNT=0` to disable them (capture main display only).
 
 Requires **Screen Recording** permission for the terminal running `swift run`
 (System Settings > Privacy & Security > Screen Recording). Without it the app

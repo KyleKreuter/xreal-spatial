@@ -1,5 +1,6 @@
 import AppKit
 import MetalKit
+import CVDShim
 
 // ---- MTKView subclass that forwards key presses ----------------------------
 final class KeyView: MTKView {
@@ -8,20 +9,30 @@ final class KeyView: MTKView {
     override func keyDown(with event: NSEvent) { onKey?(event) }
 }
 
-// ---- pick the glasses display ----------------------------------------------
-// XREAL One reports as a 1920x1080 external screen; default to that, else the
-// last (non-main) screen. Override with `--display N`.
-func pickScreen() -> NSScreen {
+func displayID(of screen: NSScreen) -> CGDirectDisplayID {
+    (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
+}
+
+/// Pick the XREAL One's display. Matches by name first ("One"), then a 1080p
+/// screen that is neither our virtual displays nor the main display. Falls back
+/// to the main display (visible) with a warning, never to a virtual one.
+func pickGlasses(excluding virtual: Set<CGDirectDisplayID>) -> NSScreen {
     let screens = NSScreen.screens
     if let i = CommandLine.arguments.firstIndex(of: "--display"),
        i + 1 < CommandLine.arguments.count,
        let n = Int(CommandLine.arguments[i + 1]), n >= 0, n < screens.count {
         return screens[n]
     }
-    if let one = screens.first(where: { $0.frame.width == 1920 && $0.frame.height == 1080 }) {
-        return one
+    if let s = screens.first(where: { $0.localizedName.localizedCaseInsensitiveContains("One") }) {
+        return s
     }
-    return screens.last ?? screens[0]
+    if let s = screens.first(where: {
+        $0.frame.width == 1920 && $0.frame.height == 1080
+            && !virtual.contains(displayID(of: $0))
+            && displayID(of: $0) != CGMainDisplayID()
+    }) { return s }
+    print("WARN: XREAL One display not found — using the main display. Connect the glasses or pass --display N.")
+    return NSScreen.main ?? screens[0]
 }
 
 // ---- app ----------------------------------------------------------------
@@ -38,7 +49,25 @@ guard let device = MTLCreateSystemDefaultDevice() else {
     fatalError("No Metal device")
 }
 
-let screen = pickScreen()
+// ---- displays: left/right = virtual, center = the real main display --------
+let vdCount = Int(ProcessInfo.processInfo.environment["XREAL_VD_COUNT"] ?? "2") ?? 2
+print("CGVirtualDisplay available: \(CVDFactory.isAvailable())")
+
+var displayIDs: [CGDirectDisplayID?] = [nil, CGMainDisplayID(), nil]  // left, center, right
+var virtualIDs = Set<CGDirectDisplayID>()
+if CVDFactory.isAvailable() {
+    if vdCount >= 1 {
+        let id = CVDFactory.createDisplay(withWidth: 1920, height: 1080, name: "XREAL Left")
+        if id != 0 { displayIDs[0] = id; virtualIDs.insert(id); print("virtual display Left  -> id \(id)") }
+    }
+    if vdCount >= 2 {
+        let id = CVDFactory.createDisplay(withWidth: 1920, height: 1080, name: "XREAL Right")
+        if id != 0 { displayIDs[2] = id; virtualIDs.insert(id); print("virtual display Right -> id \(id)") }
+    }
+}
+
+// ---- window on the glasses (excluding our virtual displays) ----------------
+let screen = pickGlasses(excluding: virtualIDs)
 let window = NSWindow(contentRect: screen.frame, styleMask: .borderless,
                      backing: .buffered, defer: false, screen: screen)
 window.level = .normal
@@ -52,11 +81,17 @@ view.preferredFramesPerSecond = 120
 view.isPaused = false
 view.enableSetNeedsDisplay = false
 
-// capture the main (built-in) display onto the center panel
-let capture = ScreenCapture(device: device)
-capture.start(displayID: CGMainDisplayID())
+// one capture stream per assigned display
+var captures: [Int: ScreenCapture] = [:]
+for (slot, maybeID) in displayIDs.enumerated() {
+    guard let id = maybeID else { continue }
+    let c = ScreenCapture(device: device)
+    c.start(displayID: id)
+    captures[slot] = c
+}
 
-let renderer = Renderer(view: view, head: head, texProvider: { capture.currentTexture() })
+let renderer = Renderer(view: view, head: head,
+                        texProvider: { slot in captures[slot]?.currentTexture() })
 view.delegate = renderer
 
 view.onKey = { event in
@@ -83,7 +118,7 @@ window.makeFirstResponder(view)
 NSCursor.hide()
 app.activate(ignoringOtherApps: true)
 
-print("XrealSpatial native — display \(screen.frame.size)")
+print("XrealSpatial native — window on \(screen.localizedName) \(screen.frame.size)")
 print("Keys: space=recenter  up/down=ppd  x/c/v=flip yaw/pitch/roll  g=grid  q/esc=quit")
 print("Start head_source.py in another terminal to feed head tracking.\n")
 
