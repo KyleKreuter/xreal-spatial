@@ -1,99 +1,73 @@
-# xreal-spatial
+# xreal-spatial-poc
 
-Spatial / world-locked displays for the [XREAL One](https://eu.shop.xreal.com/en-de/products/xreal-one) — turning the single head-locked screen into multiple app windows that stay fixed in space, like Apple Vision Pro.
+A proof-of-concept **spatial multi-monitor desktop** for the
+[XREAL One](https://eu.shop.xreal.com/en-de/products/xreal-one). It turns the
+glasses' single head-locked screen into **three world-locked virtual monitors**
+floating in space — look around to switch between them, drop windows onto them
+with a hotkey.
 
-This repository starts with a **latency proof-of-concept** in Python. The goal is to feel whether head-tracked counter-panning is fast and stable enough (motion-to-photon latency) before building the native Swift/Metal renderer.
+Head tracking comes from the [`xreal`](../xreal) library (a sibling repo).
 
-Head tracking comes from the neighbouring [`xreal`](../xreal) library.
+## What it does today
 
-## Architecture
+- Creates **three off-screen virtual displays** (private `CGVirtualDisplay` API)
+  and arranges them in a row above the main screen.
+- Renders them as **world-locked panels** in the glasses via Metal — they stay
+  fixed in space as you turn your head; edges stay level (roll-compensated).
+- Captures each display with **ScreenCaptureKit** into a Metal texture at ~120 fps.
+- **Global hotkeys** to send the focused window to a pane and to recenter.
+- Head latency hidden by orientation **prediction**; world-lock calibrated to
+  the One (46 px/deg).
 
-```
-head_source.py   xreal IMU -> pitch/yaw/roll -> UDP  (reused by the native renderer)
-        │  udp://127.0.0.1:51234   struct '<dfff'
-        ▼
-poc_viewer.py    pygame: world-locked grid + placeholder monitor panels,
-                 counter-panned by head orientation, fullscreen on the glasses
-```
+## Layout
 
-## Run
+| Path | What |
+|------|------|
+| `native/` | The real app — Swift/Metal renderer, virtual displays, capture, hotkeys. **Start here.** |
+| `head_source.py` | Streams head orientation from the glasses over UDP (uses the `xreal` lib). |
+| `poc_viewer.py` | The original Python/pygame latency proof-of-concept. |
 
-Install the one dependency:
+## Quick start
 
 ```bash
-pip install -r requirements.txt
+# terminal 1 — head tracking
+python3 head_source.py
+
+# terminal 2 — native spatial renderer
+cd native
+swift run
 ```
 
-Then, in two terminals:
+Put on the glasses, press **ctrl+opt+space** to recenter, then send windows to
+panes with **ctrl+opt+1 / 2 / 3**. Full setup, permissions and controls are in
+[`native/README.md`](native/README.md).
 
-```bash
-python3 head_source.py                 # streams head orientation
-python3 poc_viewer.py --display 1      # renders on the glasses (usually display 1)
+## How it works
+
+```
+glasses IMU ──▶ head_source.py ──UDP──▶ native renderer ──▶ world-locked panels
+                (xreal lib, fused           (Metal)          on the glasses
+                 + predicted)                  ▲
+CGVirtualDisplay ×3 ──▶ ScreenCaptureKit ──────┘
 ```
 
-To try it on the laptop screen first, use `poc_viewer.py --windowed`.
+The glasses' display is physically head-locked, so the renderer counter-rotates
+its content by the measured head orientation to make the panels appear fixed in
+the world.
 
-### Controls
+## Status
 
-| Key | Action |
-|-----|--------|
-| `space` | recenter (define current pose as forward / level) |
-| `[` / `]` | tune pixels-per-degree until the world locks |
-| `g` | toggle grid |
-| `q` / `esc` | quit |
+Working proof-of-concept. Known rough edges:
 
-## What to look for
+- Panel layout (spacing, size) and virtual-display resolution are fixed
+  (1920×1080, non-HiDPI).
+- Axis-sign calibration is baked in for one head mount; a first-run
+  **orientation onboarding** to auto-resolve it is the next step.
+- A small residual yaw drift is inherent (the One has no magnetometer); recenter
+  with a hotkey.
 
-Wear the glasses, run both processes, press `space` while looking forward, then
-turn your head. The three panels should stay put in space — you look from one to
-the next. Judge: does the scene feel **locked**, or does it swim/lag? Tune
-`[` / `]` so a world point stays fixed as you rotate. The HUD shows FPS and IMU
-data age (ms).
+## Requirements
 
-## Orientation onboarding (required for the native app)
-
-Head-mount orientation has per-fit ambiguities (which way is forward/level, and
-the sign of each axis). The PoC exposes these as manual keys (`space`, `x`/`c`/`v`);
-the final Mac app must resolve them automatically via a short first-run step:
-
-1. **Center** — "Look straight ahead at the marker" → captures the reference
-   pose (`q_ref`). Removes the azimuth/elevation offset.
-2. **Yaw sign** — "Turn your head right" → auto-flip yaw if it moves the wrong way.
-3. **Pitch sign** — "Nod down" → auto-flip pitch likewise.
-4. **Roll sign** — "Tilt your head right" → auto-flip roll likewise.
-5. **Scale (px/deg)** — "Look from the left marker to the right marker" → derive
-   pixels-per-degree from the known angular separation, auto-tuning the FOV.
-
-Result: correct, per-user world-lock with zero manual fiddling. Persist the
-resolved center/signs/scale so it is a one-time step.
-
-## PoC status: validated ✓
-
-Tested on a real XREAL One — world-lock feels solid and the latency is
-acceptable. Parameters carried into the native build:
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| pixels-per-degree | **46** | measured; locks the world at 1080p |
-| head mount | up=+Y, right=+X, forward=+Z | `xreal.head_angles()` |
-| roll | **compensated** | monitor edges kept world-horizontal |
-| prediction lead | **~30 ms** | angular-rate extrapolation, cuts motion sickness |
-| head source | `head_source.py` over UDP | reused unchanged by the native renderer |
-
-## Next: native renderer
-
-Now that the concept holds, the real app moves to native Swift/Metal for lower
-latency and true screen content. `head_source.py` stays as the head-tracking
-source (UDP, same packet format). Roadmap:
-
-1. **Metal skeleton** ✓ — `native/` (Swift/Metal), world-locked scene at ~120 fps.
-2. **Virtual displays** ✓ — three off-screen displays via the private
-   `CGVirtualDisplay` API, auto-arranged in a row.
-3. **Capture** ✓ — ScreenCaptureKit grabs each display into a Metal texture.
-4. **Composite** ✓ — captured displays rendered as world-locked panels.
-5. **Window UX** ✓ — global hotkeys send the focused window to a pane
-   (Accessibility API); recenter hotkey.
-6. **Onboarding** — orientation calibration flow (auto-resolve signs + scale).
-7. **Polish** — configurable layout, HiDPI virtual displays, persistence.
-
-The native app lives in `native/` — see `native/README.md`.
+- XREAL One, macOS 13+, Swift toolchain, Python 3.8+.
+- Screen Recording permission (capture) and Accessibility permission (window
+  hotkeys) for the launching terminal — see `native/README.md`.
