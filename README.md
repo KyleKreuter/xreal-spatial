@@ -6,7 +6,8 @@ glasses' single head-locked screen into **three world-locked virtual monitors**
 floating in space — look around to switch between them, drop windows onto them
 with a hotkey.
 
-Head tracking comes from the [`xreal`](../xreal) library (a sibling repo).
+Head tracking comes from the [`xreal`](https://github.com/KyleKreuter/xreal)
+library (a sibling repo).
 
 ## What it does today
 
