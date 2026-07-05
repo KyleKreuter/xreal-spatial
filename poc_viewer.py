@@ -55,8 +55,11 @@ class HeadState:
         self.q_ref = None         # recenter reference
         self.stamp = 0.0
         self.az = self.el = self.roll = 0.0
-        # per-mount sign corrections (resolved via the flip keys / onboarding)
-        self.sx = self.sy = self.sr = 1.0
+        # per-mount sign corrections (resolved via the flip keys / onboarding).
+        # sy=-1: the XREAL One mount reports elevation inverted for pan purposes.
+        self.sx = 1.0
+        self.sy = -1.0
+        self.sr = 1.0
 
     def apply(self, t, w, x, y, z):
         self.stamp = t
