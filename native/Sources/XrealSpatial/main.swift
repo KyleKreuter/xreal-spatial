@@ -20,6 +20,21 @@ func displayID(of screen: NSScreen) -> CGDirectDisplayID {
     (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
 }
 
+/// Arrange the virtual displays in a predictable row directly above the main
+/// display (Left | Center | Right), so mouse/window travel is intuitive:
+/// push the cursor up from the main screen to reach Center, then left/right.
+func arrangeVirtualDisplays(_ ids: [CGDirectDisplayID?]) {
+    var cfg: CGDisplayConfigRef?
+    guard CGBeginDisplayConfiguration(&cfg) == .success, let cfg else { return }
+    let origins: [(Int32, Int32)] = [(-1920, -1080), (0, -1080), (1920, -1080)]
+    for (i, maybeID) in ids.enumerated() where i < origins.count {
+        if let id = maybeID {
+            CGConfigureDisplayOrigin(cfg, id, origins[i].0, origins[i].1)
+        }
+    }
+    CGCompleteDisplayConfiguration(cfg, .permanently)
+}
+
 /// Pick the XREAL One's display. Matches by name first ("One"), then a 1080p
 /// screen that is neither our virtual displays nor the main display. Falls back
 /// to the main display (visible) with a warning, never to a virtual one.
@@ -74,6 +89,7 @@ if CVDFactory.isAvailable() {
             print("virtual \(vdNames[slot]) -> id \(id)")
         }
     }
+    arrangeVirtualDisplays(displayIDs)   // Left | Center | Right, above main
 }
 
 // ---- window on the glasses (excluding our virtual displays) ----------------
@@ -128,8 +144,30 @@ window.makeFirstResponder(view)
 NSCursor.hide()
 app.activate(ignoringOtherApps: true)
 
+// ---- global hotkeys (work while you are in any app) ------------------------
+// ctrl+opt+1/2/3 -> send focused window to Left/Center/Right pane
+// ctrl+opt+space -> recenter the view
+WindowMover.ensurePermission()
+func handleHotkey(_ e: NSEvent) -> Bool {
+    let mods = e.modifierFlags.intersection([.command, .control, .option, .shift])
+    guard mods == [.control, .option] else { return false }
+    switch e.keyCode {
+    case 18: if let id = displayIDs[0] { WindowMover.move(toDisplay: id) }; return true   // 1
+    case 19: if let id = displayIDs[1] { WindowMover.move(toDisplay: id) }; return true   // 2
+    case 20: if let id = displayIDs[2] { WindowMover.move(toDisplay: id) }; return true   // 3
+    case 49: head.recenter(); return true                                                 // space
+    default: return false
+    }
+}
+NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { _ = handleHotkey($0) }
+NSEvent.addLocalMonitorForEvents(matching: .keyDown) { handleHotkey($0) ? nil : $0 }
+
 print("XrealSpatial native — window on \(screen.localizedName) \(screen.frame.size)")
-print("Keys: space=recenter  up/down=ppd  x/c/v=flip yaw/pitch/roll  g=grid  q/esc=quit")
-print("Start head_source.py in another terminal to feed head tracking.\n")
+print("""
+Global hotkeys:  ctrl+opt+1/2/3 = send window to Left/Center/Right pane
+                 ctrl+opt+space = recenter
+Window keys:     up/down=ppd  x/c/v=flip yaw/pitch/roll  g=grid  q/esc=quit
+Start head_source.py in another terminal to feed head tracking.
+""")
 
 app.run()

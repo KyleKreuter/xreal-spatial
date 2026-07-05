@@ -86,11 +86,14 @@ Now that the concept holds, the real app moves to native Swift/Metal for lower
 latency and true screen content. `head_source.py` stays as the head-tracking
 source (UDP, same packet format). Roadmap:
 
-1. **Metal skeleton** ✓ — `native/` (Swift/Metal). Fullscreen on the glasses,
-   consumes the UDP head packets, renders the world-locked scene at ~120 fps.
-   Ported head_angles + roll-comp + level-lock. See `native/README.md`.
-2. **Virtual displays** — create N off-screen displays (CGVirtualDisplay / BetterDisplay).
-3. **Capture** — ScreenCaptureKit grabs each display into a Metal texture.
-4. **Composite** — place the captured displays as panels at world azimuths.
-5. **Onboarding** — the orientation calibration flow above.
-6. **UX** — recenter, window placement, persistence.
+1. **Metal skeleton** ✓ — `native/` (Swift/Metal), world-locked scene at ~120 fps.
+2. **Virtual displays** ✓ — three off-screen displays via the private
+   `CGVirtualDisplay` API, auto-arranged in a row.
+3. **Capture** ✓ — ScreenCaptureKit grabs each display into a Metal texture.
+4. **Composite** ✓ — captured displays rendered as world-locked panels.
+5. **Window UX** ✓ — global hotkeys send the focused window to a pane
+   (Accessibility API); recenter hotkey.
+6. **Onboarding** — orientation calibration flow (auto-resolve signs + scale).
+7. **Polish** — configurable layout, HiDPI virtual displays, persistence.
+
+The native app lives in `native/` — see `native/README.md`.
