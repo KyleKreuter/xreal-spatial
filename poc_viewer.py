@@ -119,12 +119,13 @@ def main():
     TEXT = (210, 214, 224)
 
     def project(az, el):
-        """World (azimuth, elevation) in degrees -> screen pixel, with roll."""
+        """World (azimuth, elevation) in degrees -> screen pixel.
+
+        Roll is intentionally NOT applied: panels stay level/upright so tilting
+        the head does not rotate the workspace (horizon-locked)."""
         dx = (az - head.az) * ppd
         dy = -(el - head.el) * ppd
-        r = -head.rollr
-        c, s = math.cos(r), math.sin(r)
-        return (cx + dx * c - dy * s, cy + dx * s + dy * c)
+        return (cx + dx, cy + dy)
 
     running = True
     fps_ema = 0.0
@@ -145,8 +146,6 @@ def main():
                     head.sx *= -1
                 elif e.key == pygame.K_c:
                     head.sy *= -1
-                elif e.key == pygame.K_v:
-                    head.sr *= -1
                 elif e.key == pygame.K_g:
                     show_grid = not show_grid
 
@@ -186,11 +185,11 @@ def main():
         fps = clock.get_fps()
         fps_ema = fps if fps_ema == 0 else 0.9 * fps_ema + 0.1 * fps
         age_ms = (time.time() - head.stamp) * 1000.0 if head.stamp else -1
-        signs = f"yaw{'+' if head.sx > 0 else '-'} pitch{'+' if head.sy > 0 else '-'} roll{'+' if head.sr > 0 else '-'}"
+        signs = f"yaw{'+' if head.sx > 0 else '-'} pitch{'+' if head.sy > 0 else '-'}"
         hud = [
-            f"az {head.az:+6.1f}  el {head.el:+6.1f}  roll {head.roll:+6.1f}",
+            f"az {head.az:+6.1f}  el {head.el:+6.1f}  (roll {head.roll:+5.1f}, level-locked)",
             f"{fps_ema:4.0f} fps   IMU-age {age_ms:4.0f} ms   ppd {ppd:.0f}   [{signs}]",
-            "space=recenter  up/down=ppd  x/c/v=flip yaw/pitch/roll  g=grid  q=quit",
+            "space=recenter  up/down=ppd  x/c=flip yaw/pitch  g=grid  q=quit",
         ]
         if not head.stamp:
             hud.insert(0, "WAITING for head_source ...")
